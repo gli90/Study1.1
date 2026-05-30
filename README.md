@@ -1,9 +1,20 @@
-# QUEST
+# Blue-Purple QUEST Experiment
 
-# Blue Purple QUEST
+A PsychoPy-based psychophysical experiment designed to estimate individual blue-purple color discrimination thresholds using the QUEST adaptive staircase procedure.
 
-A PsychoPy experiment using QUEST adaptive staircase
-to estimate blue-purple discrimination thresholds.
+## Overview
+
+This experiment presents color stimuli along a blue-purple continuum and adaptively adjusts stimulus difficulty using QUEST.
+
+The goal is to estimate the perceptual boundary and discrimination threshold between blue and purple hues.
+
+## Features
+
+- PsychoPy implementation
+- QUEST adaptive staircase
+- Trial-by-trial response recording
+- Excel/CSV data export
+- Participant information collection
 
 ## Requirements
 
@@ -13,4 +24,5 @@ to estimate blue-purple discrimination thresholds.
 
 ## Run
 
-python blue_purple_quest.py
+```bash
+/Applications/PsychoPy.app/Contents/MacOS/python blue_purple_quest.py
