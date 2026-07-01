@@ -13,7 +13,7 @@ The goal is to estimate the perceptual boundary and discrimination threshold bet
 - PsychoPy implementation
 - QUEST adaptive staircase
 - Trial-by-trial response recording
-- Excel/CSV data export
+- Excel_CSV data export
 - Participant information collection
 
 ## Requirements
