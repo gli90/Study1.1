@@ -1,4 +1,4 @@
-# A QUEST for Color Discrimination
+# A QUEST for Perceptual Threshold Calibration
 
 A PsychoPy-based psychophysical experiment designed to estimate individual blue-purple color discrimination thresholds using the QUEST adaptive staircase procedure.
 
