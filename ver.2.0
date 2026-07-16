@@ -4,16 +4,31 @@ Skeleton v2.0
 Author: Gong Li
 """
 
-from psychopy import visual, core, event, gui
+"""
+taskA_perceptual_threshold_v2.py
+Skeleton v2.0
+Author: Gong Li
+"""
+
+from psychopy import visual, core, event, gui, data
 from psychopy.hardware import keyboard
 import numpy as np
 import pandas as pd
 import random
+from scipy.stats import norm
 
 # =====================================================
 # Settings
 # =====================================================
+
 DEBUG = True
+
+# ------------------------------------
+# Timing parameters
+# ------------------------------------
+FIX_TIME = 0.5
+STIM_TIME = 0.45
+ITI_TIME = 0.5
 
 info = {"Participant":"","Age":"","Gender":""}
 dlg = gui.DlgFromDict(info, title="Perceptual Threshold Calibration")
@@ -28,6 +43,37 @@ else:
     win = visual.Window(fullscr=True, color=(0,0,0), units="pix")
 
 kb = keyboard.Keyboard()
+
+# =====================================================
+# QUEST Parameters
+# =====================================================
+
+QUEST_START = 1.5
+QUEST_SD = 0.8
+
+P_THRESHOLD = 0.75
+
+BETA = 3.5
+DELTA = 0.01
+GAMMA = 0.5
+
+N_TRIALS = 50
+
+# =====================================================
+# Temporary Axis Selection (v2.3)
+# Remove after selecting the best chromatic axis.
+# =====================================================
+
+AXIS_SELECTION = True
+
+AXIS_SELECTION_DIFFS = [4.0, 6.0, 8.0]
+
+AXIS_SELECTION_REPEAT = 3
+
+# =====================================================
+# QUEST Initialization
+# =====================================================
+
 
 # =====================================================
 # LAB -> RGB
@@ -52,21 +98,83 @@ def lab_to_rgb(L,a,b):
     return np.clip(rgb,0,1)
 
 # =====================================================
-# Experimental Chromatic Axis (placeholder)
+# Experimental Chromatic Axis （ECA）
 # =====================================================
-LSTAR=75
-REFERENCE=np.array([0.0,-25.0])
-ECA=np.array([1.0,0.0])   # replace after axis selection
 
-DIFFERENCES=[0,2,4,6,8,10]
-REPEAT=10
+LSTAR = 75
 
-trials=[]
-for d in DIFFERENCES:
-    for _ in range(REPEAT):
-        side=random.choice(["left","right"])
-        trials.append({"difference":d,"side":side})
-random.shuffle(trials)
+# =====================================================
+# Experimental Reference Color (v2.3)
+# Chosen as a moderately saturated blue region while
+# remaining well inside the display gamut.
+# This reference will be used consistently in both
+# Task A (threshold calibration) and the future Task B.
+# =====================================================
+
+# =====================================================
+# Reference Color for each candidate hue axis
+# =====================================================
+
+REFERENCE_COLORS = {
+
+    # Blue-Purple
+    "A": np.array([8.0, -18.0], dtype=float),
+
+    # Blue-Cyan
+    "B": np.array([-18.0, -18.0], dtype=float),
+
+    # Blue-Yellow
+    "C": np.array([0.0, -5.0], dtype=float),
+
+}
+
+# Default reference for practice
+REFERENCE = REFERENCE_COLORS["A"]
+
+# -----------------------------------------------------
+# Chromatic Axis (Unit Vector)
+# -----------------------------------------------------
+#
+# Current direction:
+#   slightly toward blue-purple
+#
+# IMPORTANT:
+# The vector is normalized to length = 1.
+# Therefore,
+#
+# difference = 1
+#
+# means moving exactly ONE unit along the chromatic axis.
+#
+# This makes future calibration much easier.
+#
+# -----------------------------------------------------
+# Candidate Hue Axes (v2.3)
+# Reference = (-5, -15)
+#
+# A : Blue ↔ Purple
+# B : Blue ↔ Cyan
+# C : Blue ↔ Yellow
+# -----------------------------------------------------
+
+AXES = {
+
+    # Blue → Purple
+    "A": np.array([0.60, -0.80], dtype=float),
+
+    # Blue → Cyan
+    "B": np.array([-0.60, -0.80], dtype=float),
+
+    # Blue → Yellow
+    "C": np.array([0.00, 1.00], dtype=float),
+
+}
+
+for k in AXES:
+    AXES[k] /= np.linalg.norm(AXES[k])
+
+# Default axis for practice trials
+axis = AXES["A"]
 
 LEFT=(-250,0)
 RIGHT=(250,0)
@@ -74,56 +182,676 @@ SIZE=80
 
 left_patch=visual.Rect(win,width=SIZE,height=SIZE,pos=LEFT,lineColor=None)
 right_patch=visual.Rect(win,width=SIZE,height=SIZE,pos=RIGHT,lineColor=None)
-fix=visual.TextStim(win,text="+",color="white")
+fix=visual.TextStim(win,text="+",color="white",font="Courier New")
 
 results=[]
 
-for i,t in enumerate(trials):
-    shift=t["difference"]*ECA
-    ref=REFERENCE
-    cmp=REFERENCE+shift
+# =====================================================
+# Welcome Screen
+# =====================================================
+welcome = visual.TextStim(
+    win,
+    text="Welcome!\n\nLet's see how sharp your eyes are.\n\nPress SPACE to start.",
+    color="white",
+    height=28,
+    wrapWidth=900,
+    font="Courier New",
+)
 
-    if t["side"]=="left":
-        left_lab, right_lab = cmp, ref
-        correct="Different" if t["difference"]>0 else "Same"
+welcome.draw()
+win.flip()
+event.waitKeys(keyList=["space"])
+
+# =====================================================
+# Instruction Screen
+# =====================================================
+instruction = visual.TextStim(
+    win,
+    text=(
+        "Two colored squares will briefly appear.\n\n"
+        "If they look the SAME, press Y.\n\n"
+        "If they look DIFFERENT, press N.\n\n"
+        "Please respond as accurately as possible.\n\n"
+        "Press SPACE to continue."
+    ),
+    color="white",
+    height=24,
+    wrapWidth=900,
+    font="Courier New",
+)
+
+instruction.draw()
+win.flip()
+event.waitKeys(keyList=["space"])
+
+# =====================================================
+# Practice Block
+# =====================================================
+practice_diffs = [3.0, 2.0, 1.0, 0.0, 2.5]
+
+practice_text = visual.TextStim(
+    win,
+    text=(
+        "Practice\n\n"
+        "Let's warm up with 5 practice trials.\n\n"
+        "These trials are just for getting familiar with the task.\n\n"
+        "Press SPACE to begin."
+    ),
+    color="white",
+    height=26,
+    font="Courier New",
+)
+practice_text.draw()
+win.flip()
+event.waitKeys(keyList=["space"])
+
+for difference in practice_diffs:
+
+    practice_label = visual.TextStim(
+        win,
+        text="Practice",
+        color="yellow",
+        height=24,
+        pos=(0, 250),
+        font="Courier New",
+    )
+    side = random.choice(["left", "right"])
+    shift = (difference / 2) * axis
+    left_color = REFERENCE - shift
+    right_color = REFERENCE + shift
+
+    if side == "left":
+        left_lab = left_color
+        right_lab = right_color
     else:
-        left_lab, right_lab = ref, cmp
-        correct="Different" if t["difference"]>0 else "Same"
+        left_lab = right_color
+        right_lab = left_color
 
-    left_patch.fillColor=lab_to_rgb(LSTAR,left_lab[0],left_lab[1])*2-1
-    right_patch.fillColor=lab_to_rgb(LSTAR,right_lab[0],right_lab[1])*2-1
+    left_patch.fillColor = lab_to_rgb(LSTAR, left_lab[0], left_lab[1]) * 2 - 1
+    right_patch.fillColor = lab_to_rgb(LSTAR, right_lab[0], right_lab[1]) * 2 - 1
 
-    fix.draw(); win.flip(); core.wait(0.5)
+    fix.draw()
+    win.flip()
+    core.wait(FIX_TIME)
 
-    clock=core.Clock()
-    resp=None
-    while resp is None:
-        left_patch.draw(); right_patch.draw()
+    left_patch.draw()
+    right_patch.draw()
+    practice_label.draw()
+    win.flip()
+    core.wait(STIM_TIME)
+
+    response_y = visual.TextStim(
+        win,
+        text="Y = SAME",
+        font="Courier New",
+        color=(0.55,0.55,0.55),
+        height=22,
+        pos=(0,18),
+    )
+
+    response_n = visual.TextStim(
+        win,
+        text="N = DIFF",
+        font="Courier New",
+        color=(0.55,0.55,0.55),
+        height=22,
+        pos=(0,-18),
+    )
+
+    answered = False
+    while not answered:
+        response_y.draw()
+        response_n.draw()
         win.flip()
-        keys=event.getKeys()
+        keys = event.getKeys()
         if "escape" in keys:
-            win.close(); core.quit()
-        if "y" in keys:
-            resp="Same"
-        if "n" in keys:
-            resp="Different"
-    rt=clock.getTime()
-    results.append({
-        "participant":participant,
-        "trial":i+1,
-        "difference":t["difference"],
-        "response":resp,
-        "correct":correct,
-        "accuracy":int(resp==correct),
-        "rt":round(rt,3)
-    })
+            win.close()
+            core.quit()
+        if "y" in keys or "n" in keys:
+            answered = True
 
-df=pd.DataFrame(results)
-df.to_csv(f"{participant}_taskA_v2.csv",index=False)
+    win.flip()
+    core.wait(ITI_TIME)
 
-visual.TextStim(win,text="Finished\nPress SPACE",color="white").draw()
+practice_end = visual.TextStim(
+    win,
+    text=(
+        "Great!\n\n"
+        "The real task will start now.\n\n"
+        "Try to respond as accurately as possible.\n\n"
+        "Press SPACE to continue."
+    ),
+    color="white",
+    height=24,
+    font="Courier New",
+)
+practice_end.draw()
+win.flip()
+event.waitKeys(keyList=["space"])
+
+# =====================================================
+# Axis Selection Introduction
+# =====================================================
+
+if AXIS_SELECTION:
+
+    axis_intro = visual.TextStim(
+        win,
+        text=(
+            "Round 1\n\n"
+            "You will complete a short set of color judgments.\n\n"
+            "There is no time pressure.\n\n"
+            "Press SPACE to begin."
+        ),
+        color="white",
+        height=24,
+        wrapWidth=900,
+        font="Courier New",
+    )
+
+    axis_intro.draw()
+    win.flip()
+    event.waitKeys(keyList=["space"])
+
+# =====================================================
+# Temporary Axis Selection
+# =====================================================
+
+if AXIS_SELECTION:
+
+    for axis_name in ["A","B","C"]:
+
+        axis = AXES[axis_name]
+
+        if axis_name != "A":
+
+            break_text = visual.TextStim(
+                win,
+                text="Take a short break.\n\nPress SPACE when you are ready.",
+                color="white",
+                height=24,
+                font="Courier New",
+            )
+
+            break_text.draw()
+            win.flip()
+            event.waitKeys(keyList=["space"])
+
+        for diff in AXIS_SELECTION_DIFFS:
+
+            for rep in range(AXIS_SELECTION_REPEAT):
+
+                side = random.choice(["left","right"])
+
+                shift = (diff/2)*axis
+
+                reference = REFERENCE_COLORS[axis_name]
+
+                left_color = reference - shift
+                right_color = reference + shift
+
+                if side=="left":
+                    left_lab=left_color
+                    right_lab=right_color
+                else:
+                    left_lab=right_color
+                    right_lab=left_color
+
+                left_patch.fillColor=lab_to_rgb(
+                    LSTAR,
+                    left_lab[0],
+                    left_lab[1]
+                )*2-1
+
+                right_patch.fillColor=lab_to_rgb(
+                    LSTAR,
+                    right_lab[0],
+                    right_lab[1]
+                )*2-1
+
+                fix.draw()
+                win.flip()
+                core.wait(FIX_TIME)
+
+                left_patch.draw()
+                right_patch.draw()
+                win.flip()
+                core.wait(STIM_TIME)
+
+                win.flip()
+
+                response_y = visual.TextStim(
+                    win,
+                    text="Y = SAME",
+                    font="Courier New",
+                    color=(0.55,0.55,0.55),
+                    height=22,
+                    pos=(0,18),
+                )
+
+                response_n = visual.TextStim(
+                    win,
+                    text="N = DIFF",
+                    font="Courier New",
+                    color=(0.55,0.55,0.55),
+                    height=22,
+                    pos=(0,-18),
+                )
+
+                clock=core.Clock()
+                resp=None
+                while resp is None:
+                    response_y.draw()
+                    response_n.draw()
+                    win.flip()
+                    keys=event.getKeys()
+                    if "escape" in keys:
+                        win.close()
+                        core.quit()
+                    if "y" in keys:
+                        resp="Same"
+                    if "n" in keys:
+                        resp="Different"
+
+                rt=clock.getTime()
+
+                win.flip()
+                core.wait(ITI_TIME)
+
+                correct="Different"
+
+                accuracy=int(resp==correct)
+
+                results.append({
+
+                    "participant":participant,
+
+                    "phase":"axis_selection",
+
+                    "axis":axis_name,
+
+                    "difference":diff,
+
+                    "response":resp,
+
+                    "correct":correct,
+
+                    "accuracy":accuracy,
+
+                    "rt":round(rt,3)
+
+                })
+
+                if DEBUG:
+
+                    print(
+
+                        f"[Axis Selection]",
+
+                        axis_name,
+
+                        diff,
+
+                        accuracy,
+
+                        rt
+
+                    )
+
+    finish_validation = visual.TextStim(
+        win,
+        text=(
+            "Nice job!\n\n"
+            "The next round will begin now.\n\n"
+            "Press SPACE to continue."
+        ),
+        color="white",
+        height=24,
+        font="Courier New",
+    )
+
+    finish_validation.draw()
+
+    win.flip()
+
+    event.waitKeys(keyList=["space"])
+
+# -----------------------------------------------------
+# Catch Trial Settings
+# -----------------------------------------------------
+CATCH_PROB = 0.20     # 20% Same trials
+
+global_trial = 0
+thresholds = {}
+
+summary = {
+    "A": {"acc": [], "rt": []},
+    "B": {"acc": [], "rt": []},
+    "C": {"acc": [], "rt": []},
+}
+
+# Signal detection counters for QC
+sdt = {
+    "A": {"hit":0, "miss":0, "fa":0, "cr":0},
+    "B": {"hit":0, "miss":0, "fa":0, "cr":0},
+    "C": {"hit":0, "miss":0, "fa":0, "cr":0},
+}
+
+# -----------------------------------
+# QUEST difference history tracking
+# -----------------------------------
+quest_history = {
+    "A": [],
+    "B": [],
+    "C": [],
+}
+
+for block_index, axis_name in enumerate(["A", "B", "C"], start=1):
+
+    axis = AXES[axis_name]
+
+    if block_index > 1:
+        break_text = visual.TextStim(
+            win,
+            text="Take a short break.\n\nPress SPACE when you are ready.",
+            color="white",
+            height=26,
+            font="Courier New",
+        )
+        break_text.draw()
+        win.flip()
+        event.waitKeys(keyList=["space"])
+
+    quest = data.QuestHandler(
+        startVal=QUEST_START,
+        startValSd=QUEST_SD,
+        pThreshold=P_THRESHOLD,
+        beta=BETA,
+        delta=DELTA,
+        gamma=GAMMA,
+        nTrials=N_TRIALS,
+        minVal=0,
+        maxVal=15,
+    )
+
+    for trial_in_block, difference in enumerate(quest, start=1):
+        global_trial += 1
+
+        # -------------------------------------------------
+        # Decide trial type
+        # -------------------------------------------------
+        if random.random() < CATCH_PROB:
+            trial_type = "CATCH"
+            difference = 0.0
+        else:
+            trial_type = "QUEST"
+            difference = float(difference)
+            difference = max(0, difference)
+            quest_history[axis_name].append(difference)
+
+        side = random.choice(["left", "right"])
+        shift = (difference / 2) * axis
+        reference = REFERENCE_COLORS[axis_name]
+
+        left_color = reference - shift
+        right_color = reference + shift
+
+        if side == "left":
+            left_lab = left_color
+            right_lab = right_color
+        else:
+            left_lab = right_color
+            right_lab = left_color
+
+        correct = "Different" if difference > 0 else "Same"
+
+        left_patch.fillColor = lab_to_rgb(LSTAR, left_lab[0], left_lab[1]) * 2 - 1
+        right_patch.fillColor = lab_to_rgb(LSTAR, right_lab[0], right_lab[1]) * 2 - 1
+
+        fix.draw()
+        win.flip()
+        core.wait(FIX_TIME)
+
+        left_patch.draw()
+        right_patch.draw()
+        win.flip()
+        core.wait(STIM_TIME)
+
+        win.flip()
+
+        response_y = visual.TextStim(
+            win,
+            text="Y = SAME",
+            font="Courier New",
+            color=(0.55,0.55,0.55),
+            height=22,
+            pos=(0,18),
+        )
+        response_n = visual.TextStim(
+            win,
+            text="N = DIFF",
+            font="Courier New",
+            color=(0.55,0.55,0.55),
+            height=22,
+            pos=(0,-18),
+        )
+        clock = core.Clock()
+        resp = None
+        while resp is None:
+            response_y.draw()
+            response_n.draw()
+            win.flip()
+            keys = event.getKeys()
+            print(keys)
+            if "escape" in keys:
+                win.close()
+                core.quit()
+            if "y" in keys:
+                resp = "Same"
+            if "n" in keys:
+                resp = "Different"
+        rt = clock.getTime()
+
+        win.flip()
+        core.wait(ITI_TIME)
+
+        # -----------------------------------------------------
+        # Accuracy
+        # -----------------------------------------------------
+        accuracy = int(resp == correct)
+
+        # Signal detection theory counters
+        if correct == "Different":
+            if resp == "Different":
+                sdt[axis_name]["hit"] += 1
+            else:
+                sdt[axis_name]["miss"] += 1
+        else:
+            if resp == "Different":
+                sdt[axis_name]["fa"] += 1
+            else:
+                sdt[axis_name]["cr"] += 1
+
+        summary[axis_name]["acc"].append(accuracy)
+        summary[axis_name]["rt"].append(rt)
+
+        results.append({
+            "participant": participant,
+            "phase":"quest",
+            "global_trial": global_trial,
+            "block": block_index,
+            "trial": trial_in_block,
+            "axis": axis_name,
+            "trial_type": trial_type,
+            "difference": difference,
+            "response": resp,
+            "correct": correct,
+            "accuracy": accuracy,
+            "rt": round(rt, 3)
+        })
+
+        if trial_type == "QUEST":
+            quest.addResponse(accuracy)
+
+        if DEBUG:
+            print(
+                f"{trial_type}",
+                f"Trial {global_trial:02d}",
+                f"Axis={axis_name}",
+                f"Diff={difference:.2f}",
+                f"Resp={resp}",
+                f"Correct={correct}",
+                f"Acc={accuracy}",
+                f"RT={rt:.3f}"
+            )
+
+    thresholds[axis_name] = quest.mean()
+
+df = pd.DataFrame(results)
+df.to_csv(f"{participant}_taskA_v2.csv", index=False)
+
+# =====================================================
+# Report
+# =====================================================
+report_lines = []
+report_lines.append("==========================================")
+report_lines.append("Task A Report")
+report_lines.append("==========================================")
+report_lines.append(f"Participant : {participant}")
+report_lines.append("")
+
+print("\n==========================================")
+print("Task A Summary")
+print("==========================================")
+
+for axis_name in ["A", "B", "C"]:
+
+    acc = np.mean(summary[axis_name]["acc"]) * 100
+    rt = np.mean(summary[axis_name]["rt"])
+    th = thresholds[axis_name]
+
+    # --- Last 10 QUEST differences analysis ---
+    last10 = quest_history[axis_name][-10:]
+    last10_mean = np.mean(last10)
+    last10_sd = np.std(last10)
+    status = "Stable" if last10_sd < 0.30 else "Not Stable"
+
+    print(f"\nAxis {axis_name}")
+    print(f"Threshold : {th:.3f}")
+    print(f"Accuracy  : {acc:.1f}%")
+    print(f"Mean RT   : {rt:.3f} s")
+    print(f"Last10 Mean : {last10_mean:.3f}")
+    print(f"Last10 SD   : {last10_sd:.3f}")
+    print(f"Status      : {status}")
+
+    hit = sdt[axis_name]["hit"]
+    miss = sdt[axis_name]["miss"]
+    fa = sdt[axis_name]["fa"]
+    cr = sdt[axis_name]["cr"]
+
+    # --- d-prime and criterion calculations ---
+    hit_rate = (hit + 0.5) / (hit + miss + 1)
+    fa_rate = (fa + 0.5) / (fa + cr + 1)
+
+    z_hit = norm.ppf(hit_rate)
+    z_fa = norm.ppf(fa_rate)
+
+    d_prime = z_hit - z_fa
+    criterion = -0.5 * (z_hit + z_fa)
+
+    print(f"Hit  : {hit}")
+    print(f"Miss : {miss}")
+    print(f"FA   : {fa}")
+    print(f"CR   : {cr}")
+    print(f"Hit Rate : {hit_rate:.3f}")
+    print(f"FA Rate  : {fa_rate:.3f}")
+    print(f"d'       : {d_prime:.3f}")
+    print(f"Criterion: {criterion:.3f}")
+
+    report_lines.extend([
+        f"Axis {axis_name}",
+        f"Threshold : {th:.3f}",
+        f"Accuracy  : {acc:.1f}%",
+        f"Mean RT   : {rt:.3f} s",
+        f"Last10 Mean : {last10_mean:.3f}",
+        f"Last10 SD   : {last10_sd:.3f}",
+        f"Status      : {status}",
+        f"Hit  : {hit}",
+        f"Miss : {miss}",
+        f"FA   : {fa}",
+        f"CR   : {cr}",
+        f"Hit Rate : {hit_rate:.3f}",
+        f"FA Rate  : {fa_rate:.3f}",
+        f"d'       : {d_prime:.3f}",
+        f"Criterion: {criterion:.3f}",
+        ""
+    ])
+
+print("\n==========================================")
+
+# =====================================================
+# Recommended Axis
+# =====================================================
+
+
+scores = {}
+
+for axis_name in ["A", "B", "C"]:
+
+    acc = np.mean(summary[axis_name]["acc"])
+    rt = np.mean(summary[axis_name]["rt"])
+    th = thresholds[axis_name]
+
+    # Composite score
+    # Threshold : most important
+    # RT        : secondary
+    # Accuracy  : should stay around QUEST target (~75%)
+    acc_penalty = abs(acc - P_THRESHOLD)
+
+    score = (
+        -2.0 * th
+        -0.3 * rt
+        -1.0 * acc_penalty
+    )
+
+    scores[axis_name] = score
+
+best_axis = max(scores, key=scores.get)
+
+print("\n==========================================")
+print("Recommended Axis :", best_axis)
+
+print("\nReason:")
+
+for axis_name in ["A", "B", "C"]:
+
+    print(
+        f"Axis {axis_name}: "
+        f"Threshold={thresholds[axis_name]:.3f}, "
+        f"Accuracy={np.mean(summary[axis_name]['acc'])*100:.1f}%, "
+        f"RT={np.mean(summary[axis_name]['rt']):.3f}s"
+    )
+
+print("==========================================")
+
+report_lines.append("")
+report_lines.append(f"Recommended Axis : {best_axis}")
+report_lines.append("")
+
+for axis_name in ["A", "B", "C"]:
+    report_lines.append(
+        f"Axis {axis_name}: Threshold={thresholds[axis_name]:.3f}, "
+        f"Accuracy={np.mean(summary[axis_name]['acc'])*100:.1f}%, "
+        f"RT={np.mean(summary[axis_name]['rt']):.3f}s"
+    )
+
+with open(f"{participant}_TaskA_Report.txt", "w", encoding="utf-8") as f:
+    f.write("\n".join(report_lines))
+
+print(f"Report saved: {participant}_TaskA_Report.txt")
+
+visual.TextStim(win,text="Finished\nPress SPACE",color="white",font="Courier New").draw()
 win.flip()
 event.waitKeys(keyList=["space"])
 win.close()
 core.quit()
-
